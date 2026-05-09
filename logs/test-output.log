@@ -1,0 +1,14 @@
+bash tests/test_aes_compile.sh
+[PASS] AES compile test
+
+bash tests/test_encrypt_decrypt_roundtrip.sh
+[PASS] Roundtrip encryption/decryption
+
+bash tests/test_multiblock_padding.sh
+[PASS] Multiblock padding
+
+bash tests/test_tamper_negative.sh
+[PASS] Tamper negative test
+
+bash tests/test_wrong_key_negative.sh
+[PASS] Wrong key negative test
