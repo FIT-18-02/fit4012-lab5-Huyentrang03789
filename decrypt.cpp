@@ -1,9 +1,8 @@
 /* decrypt.cpp
- * Performs AES-128 decryption
+ * AES-128 Decryption
  */
 
 #include <iostream>
-#include <cstring>
 #include <fstream>
 #include <sstream>
 #include <iomanip>
@@ -14,89 +13,46 @@
 using namespace std;
 
 /* =====================================================
-   BASIC AES DECRYPT FUNCTIONS
+   GALOIS FIELD MULTIPLICATION
 ===================================================== */
 
-void SubRoundKey(unsigned char * state,
-                 unsigned char * roundKey) {
+unsigned char gmul(unsigned char a,
+                   unsigned char b)
+{
+    unsigned char p = 0;
 
-    for (int i = 0; i < 16; i++) {
+    for (int i = 0; i < 8; i++)
+    {
+        if (b & 1)
+        {
+            p ^= a;
+        }
+
+        bool hi_bit = (a & 0x80);
+
+        a <<= 1;
+
+        if (hi_bit)
+        {
+            a ^= 0x1B;
+        }
+
+        b >>= 1;
+    }
+
+    return p;
+}
+
+/* =====================================================
+   ADD ROUND KEY
+===================================================== */
+
+void AddRoundKey(unsigned char *state,
+                 unsigned char *roundKey)
+{
+    for (int i = 0; i < 16; i++)
+    {
         state[i] ^= roundKey[i];
-    }
-}
-
-/* =====================================================
-   INVERSE MIX COLUMNS
-===================================================== */
-
-void InverseMixColumns(unsigned char * state) {
-
-    unsigned char tmp[16];
-
-    for (int i = 0; i < 4; i++) {
-
-        int offset = i * 4;
-
-        tmp[offset + 0] =
-            mul14[state[offset + 0]] ^
-            mul11[state[offset + 1]] ^
-            mul13[state[offset + 2]] ^
-            mul9[state[offset + 3]];
-
-        tmp[offset + 1] =
-            mul9[state[offset + 0]] ^
-            mul14[state[offset + 1]] ^
-            mul11[state[offset + 2]] ^
-            mul13[state[offset + 3]];
-
-        tmp[offset + 2] =
-            mul13[state[offset + 0]] ^
-            mul9[state[offset + 1]] ^
-            mul14[state[offset + 2]] ^
-            mul11[state[offset + 3]];
-
-        tmp[offset + 3] =
-            mul11[state[offset + 0]] ^
-            mul13[state[offset + 1]] ^
-            mul9[state[offset + 2]] ^
-            mul14[state[offset + 3]];
-    }
-
-    for (int i = 0; i < 16; i++) {
-        state[i] = tmp[i];
-    }
-}
-
-/* =====================================================
-   SHIFT ROWS (RIGHT SHIFT)
-===================================================== */
-
-void ShiftRows(unsigned char * state) {
-
-    unsigned char tmp[16];
-
-    tmp[0]  = state[0];
-    tmp[1]  = state[13];
-    tmp[2]  = state[10];
-    tmp[3]  = state[7];
-
-    tmp[4]  = state[4];
-    tmp[5]  = state[1];
-    tmp[6]  = state[14];
-    tmp[7]  = state[11];
-
-    tmp[8]  = state[8];
-    tmp[9]  = state[5];
-    tmp[10] = state[2];
-    tmp[11] = state[15];
-
-    tmp[12] = state[12];
-    tmp[13] = state[9];
-    tmp[14] = state[6];
-    tmp[15] = state[3];
-
-    for (int i = 0; i < 16; i++) {
-        state[i] = tmp[i];
     }
 }
 
@@ -104,117 +60,198 @@ void ShiftRows(unsigned char * state) {
    INVERSE SUB BYTES
 ===================================================== */
 
-void SubBytes(unsigned char * state) {
-
-    for (int i = 0; i < 16; i++) {
+void InvSubBytes(unsigned char *state)
+{
+    for (int i = 0; i < 16; i++)
+    {
         state[i] = inv_s[state[i]];
     }
 }
 
 /* =====================================================
-   AES DECRYPTION ROUNDS
+   INVERSE SHIFT ROWS
 ===================================================== */
 
-void Round(unsigned char * state,
-           unsigned char * key) {
+void InvShiftRows(unsigned char *state)
+{
+    unsigned char tmp[16];
 
-    SubRoundKey(state, key);
+    tmp[0]  = state[0];
+    tmp[4]  = state[4];
+    tmp[8]  = state[8];
+    tmp[12] = state[12];
 
-    InverseMixColumns(state);
+    tmp[1]  = state[13];
+    tmp[5]  = state[1];
+    tmp[9]  = state[5];
+    tmp[13] = state[9];
 
-    ShiftRows(state);
+    tmp[2]  = state[10];
+    tmp[6]  = state[14];
+    tmp[10] = state[2];
+    tmp[14] = state[6];
 
-    SubBytes(state);
-}
+    tmp[3]  = state[7];
+    tmp[7]  = state[11];
+    tmp[11] = state[15];
+    tmp[15] = state[3];
 
-void InitialRound(unsigned char * state,
-                  unsigned char * key) {
-
-    SubRoundKey(state, key);
-
-    ShiftRows(state);
-
-    SubBytes(state);
+    for (int i = 0; i < 16; i++)
+    {
+        state[i] = tmp[i];
+    }
 }
 
 /* =====================================================
-   AES DECRYPT
+   INVERSE MIX COLUMNS
 ===================================================== */
 
-void AESDecrypt(unsigned char * encryptedMessage,
-                unsigned char * expandedKey,
-                unsigned char * decryptedMessage) {
+void InvMixColumns(unsigned char *state)
+{
+    unsigned char tmp[16];
 
+    for (int i = 0; i < 4; i++)
+    {
+        int offset = i * 4;
+
+        unsigned char s0 = state[offset + 0];
+        unsigned char s1 = state[offset + 1];
+        unsigned char s2 = state[offset + 2];
+        unsigned char s3 = state[offset + 3];
+
+        tmp[offset + 0] =
+            gmul(s0, 14) ^
+            gmul(s1, 11) ^
+            gmul(s2, 13) ^
+            gmul(s3, 9);
+
+        tmp[offset + 1] =
+            gmul(s0, 9) ^
+            gmul(s1, 14) ^
+            gmul(s2, 11) ^
+            gmul(s3, 13);
+
+        tmp[offset + 2] =
+            gmul(s0, 13) ^
+            gmul(s1, 9) ^
+            gmul(s2, 14) ^
+            gmul(s3, 11);
+
+        tmp[offset + 3] =
+            gmul(s0, 11) ^
+            gmul(s1, 13) ^
+            gmul(s2, 9) ^
+            gmul(s3, 14);
+    }
+
+    for (int i = 0; i < 16; i++)
+    {
+        state[i] = tmp[i];
+    }
+}
+
+/* =====================================================
+   AES DECRYPT BLOCK
+===================================================== */
+
+void AESDecrypt(unsigned char *input,
+                unsigned char *expandedKey,
+                unsigned char *output)
+{
     unsigned char state[16];
 
-    for (int i = 0; i < 16; i++) {
-        state[i] = encryptedMessage[i];
+    for (int i = 0; i < 16; i++)
+    {
+        state[i] = input[i];
     }
 
-    // initial round with last round key
-    InitialRound(state, expandedKey + 160);
+    AddRoundKey(state, expandedKey + 160);
 
-    // 9 main rounds
-    for (int i = 8; i >= 0; i--) {
+    for (int round = 9; round >= 1; round--)
+    {
+        InvShiftRows(state);
 
-        Round(state,
-              expandedKey + (16 * (i + 1)));
+        InvSubBytes(state);
+
+        AddRoundKey(
+            state,
+            expandedKey + (16 * round)
+        );
+
+        InvMixColumns(state);
     }
 
-    // final round
-    SubRoundKey(state, expandedKey);
+    InvShiftRows(state);
 
-    for (int i = 0; i < 16; i++) {
-        decryptedMessage[i] = state[i];
+    InvSubBytes(state);
+
+    AddRoundKey(state, expandedKey);
+
+    for (int i = 0; i < 16; i++)
+    {
+        output[i] = state[i];
     }
 }
 
 /* =====================================================
-   HELPER FUNCTIONS
+   LOAD AES KEY
 ===================================================== */
 
-bool LoadKey(unsigned char * key) {
+bool LoadKey(unsigned char *key)
+{
+    ifstream infile("keyfile");
 
-    ifstream keyfile("keyfile");
+    if (!infile.is_open())
+    {
+        cerr << "Error: Cannot open keyfile"
+             << endl;
 
-    if (!keyfile.is_open()) {
-        cerr << "Error: Cannot open keyfile" << endl;
         return false;
     }
 
-    string keystr;
-    getline(keyfile, keystr);
+    string keyStr;
 
-    keyfile.close();
+    getline(infile, keyStr);
 
-    istringstream hex_chars_stream(keystr);
+    infile.close();
 
-    unsigned int c;
-    int i = 0;
+    istringstream iss(keyStr);
 
-    while (hex_chars_stream >> hex >> c) {
+    unsigned int value;
 
-        if (i >= 16) {
+    int count = 0;
+
+    while (iss >> hex >> value)
+    {
+        if (count >= 16)
+        {
             break;
         }
 
-        key[i] = static_cast<unsigned char>(c);
-        i++;
+        key[count++] =
+            static_cast<unsigned char>(value);
     }
 
-    if (i != 16) {
-        cerr << "Error: Invalid AES-128 key" << endl;
+    if (count != 16)
+    {
+        cerr << "Error: AES key must contain 16 bytes"
+             << endl;
+
         return false;
     }
 
     return true;
 }
 
-void PrintHex(unsigned char * data,
-              int len) {
+/* =====================================================
+   PRINT HEX
+===================================================== */
 
-    for (int i = 0; i < len; i++) {
-
+void PrintHex(unsigned char *data,
+              int len)
+{
+    for (int i = 0; i < len; i++)
+    {
         cout << hex
              << setw(2)
              << setfill('0')
@@ -225,18 +262,21 @@ void PrintHex(unsigned char * data,
     cout << dec << endl;
 }
 
-/* =====================================================
-   MAIN
+/*  MAIN
 ===================================================== */
 
-int main() {
+int main()
+{
+    cout << "=================================="
+         << endl;
 
-    cout << "===================================" << endl;
-    cout << "      AES-128 Decryption Tool      " << endl;
-    cout << "===================================" << endl;
+    cout << "     AES-128 DECRYPTION TOOL"
+         << endl;
 
-    /* =================================================
-       READ ENCRYPTED FILE
+    cout << "=================================="
+         << endl;
+
+    /* READ CIPHERTEXT
     ================================================= */
 
     ifstream infile(
@@ -244,9 +284,11 @@ int main() {
         ios::binary | ios::ate
     );
 
-    if (!infile.is_open()) {
+    if (!infile.is_open())
+    {
+        cerr << "Error: Cannot open message.aes"
+             << endl;
 
-        cerr << "Error: Cannot open message.aes" << endl;
         return 1;
     }
 
@@ -255,115 +297,108 @@ int main() {
     infile.seekg(0, ios::beg);
 
     if (fileSize <= 0 ||
-        fileSize % 16 != 0) {
+        fileSize % 16 != 0)
+    {
+        cerr << "Error: Invalid ciphertext size"
+             << endl;
 
-        cerr << "Error: Invalid AES ciphertext size" << endl;
         return 1;
     }
 
-    vector<unsigned char> encryptedMessage(fileSize);
-
-    if (!infile.read(
-            reinterpret_cast<char*>(encryptedMessage.data()),
-            fileSize)) {
-
-        cerr << "Error: Failed to read ciphertext" << endl;
-        return 1;
-    }
-
-    infile.close();
-
-    cout << "[INFO] Read "
-         << fileSize
-         << " bytes from message.aes"
-         << endl;
-
-    /* =================================================
-       LOAD KEY
-    ================================================= */
-
-    unsigned char key[16];
-
-    if (!LoadKey(key)) {
-        return 1;
-    }
-
-    cout << "[INFO] AES Key Loaded Successfully"
-         << endl;
-
-    /* =================================================
-       KEY EXPANSION
-    ================================================= */
-
-    unsigned char expandedKey[176];
-
-    KeyExpansion(key, expandedKey);
-
-    cout << "[INFO] Key Expansion Completed"
-         << endl;
-
-    /* =================================================
-       DECRYPT BLOCKS
-    ================================================= */
-
-    vector<unsigned char> decryptedMessage(fileSize);
-
-    for (int i = 0; i < fileSize; i += 16) {
-
-        AESDecrypt(
-            encryptedMessage.data() + i,
-            expandedKey,
-            decryptedMessage.data() + i
-        );
-    }
-
-    /* =================================================
-       PRINT HEX
-    ================================================= */
-
-    cout << "\nDecrypted message in HEX:" << endl;
-
-    PrintHex(
-        decryptedMessage.data(),
+    vector<unsigned char> encrypted(
         fileSize
     );
 
+    infile.read(
+        reinterpret_cast<char*>(encrypted.data()),
+        fileSize
+    );
+
+    infile.close();
+
+    /*  LOAD KEY */
+
+    unsigned char key[16];
+
+    if (!LoadKey(key))
+    {
+        return 1;
+    }
+
+    cout << "[INFO] AES key loaded"
+         << endl;
+
+    /* KEY EXPANSION */
+
+    unsigned char expandedKey[176];
+
+    KeyExpansion(
+        key,
+        expandedKey
+    );
+
+    cout << "[INFO] Key expansion completed"
+         << endl;
+
     /* =================================================
-       PRINT PLAINTEXT
+       DECRYPT
     ================================================= */
 
-    cout << "\nRecovered plaintext:" << endl;
+    vector<unsigned char> decrypted(
+        fileSize
+    );
 
-    for (int i = 0; i < fileSize; i++) {
+    for (int i = 0; i < fileSize; i += 16)
+    {
+        AESDecrypt(
+            encrypted.data() + i,
+            expandedKey,
+            decrypted.data() + i
+        );
+    }
 
-        // ignore zero padding
-        if (decryptedMessage[i] != 0x00) {
-            cout << decryptedMessage[i];
+    /*   OUTPUT */
+
+    cout << "\nDecrypted HEX:"
+         << endl;
+
+    PrintHex(
+        decrypted.data(),
+        fileSize
+    );
+
+    cout << "\nRecovered plaintext:"
+         << endl;
+
+    for (int i = 0; i < fileSize; i++)
+    {
+        if (decrypted[i] != 0x00)
+        {
+            cout << decrypted[i];
         }
     }
 
     cout << endl;
 
-    /* =================================================
-       SAVE PLAINTEXT
-    ================================================= */
+    /* SAVE FILE */
 
     ofstream outfile("decrypted.txt");
 
-    if (outfile.is_open()) {
-
-        for (int i = 0; i < fileSize; i++) {
-
-            if (decryptedMessage[i] != 0x00) {
-                outfile << decryptedMessage[i];
+    if (outfile.is_open())
+    {
+        for (int i = 0; i < fileSize; i++)
+        {
+            if (decrypted[i] != 0x00)
+            {
+                outfile << decrypted[i];
             }
         }
 
         outfile.close();
-
-        cout << "\n[INFO] Plaintext written to decrypted.txt"
-             << endl;
     }
+
+    cout << "\n[INFO] Plaintext written to decrypted.txt"
+         << endl;
 
     cout << "\nDecryption completed successfully."
          << endl;
