@@ -1,226 +1,403 @@
 /* encrypt.cpp
- * Performs encryption using AES 128-bit
+ * Thực hiện mã hóa AES 128-bit
  */
 
 #include <iostream>
 #include <cstring>
 #include <fstream>
 #include <sstream>
+#include <iomanip>
 #include "structures.h"
 
 using namespace std;
 
-/* Serves as the initial round during encryption
- * AddRoundKey is simply an XOR of a 128-bit block with the 128-bit key.
- */
+/* =====================================================
+   CÁC HÀM AES CƠ BẢN
+===================================================== */
+
 void AddRoundKey(unsigned char * state, unsigned char * roundKey) {
-	for (int i = 0; i < 16; i++) {
-		state[i] ^= roundKey[i];
-	}
+    for (int i = 0; i < 16; i++) {
+        state[i] ^= roundKey[i];
+    }
 }
 
-/* Perform substitution to each of the 16 bytes
- * Uses S-box as lookup table 
- */
 void SubBytes(unsigned char * state) {
-	for (int i = 0; i < 16; i++) {
-		state[i] = s[state[i]];
-	}
+    for (int i = 0; i < 16; i++) {
+        state[i] = s[state[i]];
+    }
 }
 
-// Shift left, adds diffusion
 void ShiftRows(unsigned char * state) {
-	unsigned char tmp[16];
+    unsigned char tmp[16];
 
-	/* Column 1 */
-	tmp[0] = state[0];
-	tmp[1] = state[5];
-	tmp[2] = state[10];
-	tmp[3] = state[15];
-	
-	/* Column 2 */
-	tmp[4] = state[4];
-	tmp[5] = state[9];
-	tmp[6] = state[14];
-	tmp[7] = state[3];
+    // Row 0
+    tmp[0]  = state[0];
+    tmp[4]  = state[4];
+    tmp[8]  = state[8];
+    tmp[12] = state[12];
 
-	/* Column 3 */
-	tmp[8] = state[8];
-	tmp[9] = state[13];
-	tmp[10] = state[2];
-	tmp[11] = state[7];
-	
-	/* Column 4 */
-	tmp[12] = state[12];
-	tmp[13] = state[1];
-	tmp[14] = state[6];
-	tmp[15] = state[11];
+    // Row 1
+    tmp[1]  = state[5];
+    tmp[5]  = state[9];
+    tmp[9]  = state[13];
+    tmp[13] = state[1];
 
-	for (int i = 0; i < 16; i++) {
-		state[i] = tmp[i];
-	}
+    // Row 2
+    tmp[2]  = state[10];
+    tmp[6]  = state[14];
+    tmp[10] = state[2];
+    tmp[14] = state[6];
+
+    // Row 3
+    tmp[3]  = state[15];
+    tmp[7]  = state[3];
+    tmp[11] = state[7];
+    tmp[15] = state[11];
+
+    for (int i = 0; i < 16; i++) {
+        state[i] = tmp[i];
+    }
 }
 
- /* MixColumns uses mul2, mul3 look-up tables
-  * Source of diffusion
-  */
 void MixColumns(unsigned char * state) {
-	unsigned char tmp[16];
+    unsigned char tmp[16];
 
-	tmp[0] = (unsigned char) mul2[state[0]] ^ mul3[state[1]] ^ state[2] ^ state[3];
-	tmp[1] = (unsigned char) state[0] ^ mul2[state[1]] ^ mul3[state[2]] ^ state[3];
-	tmp[2] = (unsigned char) state[0] ^ state[1] ^ mul2[state[2]] ^ mul3[state[3]];
-	tmp[3] = (unsigned char) mul3[state[0]] ^ state[1] ^ state[2] ^ mul2[state[3]];
+    for (int i = 0; i < 4; i++) {
 
-	tmp[4] = (unsigned char)mul2[state[4]] ^ mul3[state[5]] ^ state[6] ^ state[7];
-	tmp[5] = (unsigned char)state[4] ^ mul2[state[5]] ^ mul3[state[6]] ^ state[7];
-	tmp[6] = (unsigned char)state[4] ^ state[5] ^ mul2[state[6]] ^ mul3[state[7]];
-	tmp[7] = (unsigned char)mul3[state[4]] ^ state[5] ^ state[6] ^ mul2[state[7]];
+        int offset = i * 4;
 
-	tmp[8] = (unsigned char)mul2[state[8]] ^ mul3[state[9]] ^ state[10] ^ state[11];
-	tmp[9] = (unsigned char)state[8] ^ mul2[state[9]] ^ mul3[state[10]] ^ state[11];
-	tmp[10] = (unsigned char)state[8] ^ state[9] ^ mul2[state[10]] ^ mul3[state[11]];
-	tmp[11] = (unsigned char)mul3[state[8]] ^ state[9] ^ state[10] ^ mul2[state[11]];
+        tmp[offset + 0] =
+            mul2[state[offset + 0]] ^
+            mul3[state[offset + 1]] ^
+            state[offset + 2] ^
+            state[offset + 3];
 
-	tmp[12] = (unsigned char)mul2[state[12]] ^ mul3[state[13]] ^ state[14] ^ state[15];
-	tmp[13] = (unsigned char)state[12] ^ mul2[state[13]] ^ mul3[state[14]] ^ state[15];
-	tmp[14] = (unsigned char)state[12] ^ state[13] ^ mul2[state[14]] ^ mul3[state[15]];
-	tmp[15] = (unsigned char)mul3[state[12]] ^ state[13] ^ state[14] ^ mul2[state[15]];
+        tmp[offset + 1] =
+            state[offset + 0] ^
+            mul2[state[offset + 1]] ^
+            mul3[state[offset + 2]] ^
+            state[offset + 3];
 
-	for (int i = 0; i < 16; i++) {
-		state[i] = tmp[i];
-	}
+        tmp[offset + 2] =
+            state[offset + 0] ^
+            state[offset + 1] ^
+            mul2[state[offset + 2]] ^
+            mul3[state[offset + 3]];
+
+        tmp[offset + 3] =
+            mul3[state[offset + 0]] ^
+            state[offset + 1] ^
+            state[offset + 2] ^
+            mul2[state[offset + 3]];
+    }
+
+    for (int i = 0; i < 16; i++) {
+        state[i] = tmp[i];
+    }
 }
 
-/* Each round operates on 128 bits at a time
- * The number of rounds is defined in AESEncrypt()
- */
+/* =====================================================
+   KEY EXPANSION
+===================================================== */
+
+void RotWord(unsigned char * w) {
+    unsigned char tmp = w[0];
+
+    w[0] = w[1];
+    w[1] = w[2];
+    w[2] = w[3];
+    w[3] = tmp;
+}
+
+void SubWord(unsigned char * w) {
+    for (int i = 0; i < 4; i++) {
+        w[i] = s[w[i]];
+    }
+}
+
+void KeyExpansion(unsigned char * key, unsigned char * expandedKey) {
+
+    unsigned char tmp[4];
+    int i = 0;
+
+    // copy original key
+    while (i < 16) {
+        expandedKey[i] = key[i];
+        i++;
+    }
+
+    // generate remaining bytes
+    i = 16;
+
+    while (i < 176) {
+
+        for (int j = 0; j < 4; j++) {
+            tmp[j] = expandedKey[(i - 4) + j];
+        }
+
+        if (i % 16 == 0) {
+
+            RotWord(tmp);
+            SubWord(tmp);
+
+            tmp[0] ^= rcon[i / 16];
+        }
+
+        for (int j = 0; j < 4; j++) {
+
+            expandedKey[i] =
+                expandedKey[i - 16] ^ tmp[j];
+
+            i++;
+        }
+    }
+}
+
+/* =====================================================
+   AES ROUNDS
+===================================================== */
+
 void Round(unsigned char * state, unsigned char * key) {
-	SubBytes(state);
-	ShiftRows(state);
-	MixColumns(state);
-	AddRoundKey(state, key);
+
+    SubBytes(state);
+    ShiftRows(state);
+    MixColumns(state);
+    AddRoundKey(state, key);
 }
 
- // Same as Round() except it doesn't mix columns
 void FinalRound(unsigned char * state, unsigned char * key) {
-	SubBytes(state);
-	ShiftRows(state);
-	AddRoundKey(state, key);
+
+    SubBytes(state);
+    ShiftRows(state);
+    AddRoundKey(state, key);
 }
 
-/* The AES encryption function
- * Organizes the confusion and diffusion steps into one function
- */
-void AESEncrypt(unsigned char * message, unsigned char * expandedKey, unsigned char * encryptedMessage) {
-	unsigned char state[16]; // Stores the first 16 bytes of original message
+void AESEncrypt(unsigned char * message,
+                unsigned char * expandedKey,
+                unsigned char * encryptedMessage) {
 
-	for (int i = 0; i < 16; i++) {
-		state[i] = message[i];
-	}
+    unsigned char state[16];
 
-	int numberOfRounds = 9;
+    for (int i = 0; i < 16; i++) {
+        state[i] = message[i];
+    }
 
-	AddRoundKey(state, expandedKey); // Initial round
+    // Initial round
+    AddRoundKey(state, expandedKey);
 
-	for (int i = 0; i < numberOfRounds; i++) {
-		Round(state, expandedKey + (16 * (i+1)));
-	}
+    // 9 main rounds
+    for (int i = 1; i <= 9; i++) {
+        Round(state, expandedKey + (16 * i));
+    }
 
-	FinalRound(state, expandedKey + 160);
+    // Final round
+    FinalRound(state, expandedKey + 160);
 
-	// Copy encrypted state to buffer
-	for (int i = 0; i < 16; i++) {
-		encryptedMessage[i] = state[i];
-	}
+    for (int i = 0; i < 16; i++) {
+        encryptedMessage[i] = state[i];
+    }
 }
+
+/* =====================================================
+   HELPER FUNCTIONS
+===================================================== */
+
+bool LoadKey(unsigned char * key) {
+
+    ifstream infile("keyfile");
+
+    if (!infile.is_open()) {
+        cerr << "Error: Cannot open keyfile" << endl;
+        return false;
+    }
+
+    string keyStr;
+    getline(infile, keyStr);
+    infile.close();
+
+    istringstream hexStream(keyStr);
+
+    unsigned int value;
+    int count = 0;
+
+    while (hexStream >> hex >> value) {
+
+        if (count >= 16) {
+            break;
+        }
+
+        key[count++] = static_cast<unsigned char>(value);
+    }
+
+    if (count != 16) {
+        cerr << "Error: AES-128 key must contain 16 bytes" << endl;
+        return false;
+    }
+
+    return true;
+}
+
+void PrintHex(unsigned char * data, int len) {
+
+    for (int i = 0; i < len; i++) {
+
+        cout << hex
+             << setw(2)
+             << setfill('0')
+             << (int)data[i]
+             << " ";
+    }
+
+    cout << dec << endl;
+}
+
+/* =====================================================
+   MAIN
+===================================================== */
 
 int main() {
 
-	cout << "=============================" << endl;
-	cout << " 128-bit AES Encryption Tool   " << endl;
-	cout << "=============================" << endl;
+    cout << "===================================" << endl;
+    cout << "      AES-128 Encryption Tool      " << endl;
+    cout << "===================================" << endl;
 
-	char message[1024];
+    char message[1024];
 
-	cout << "Enter the message to encrypt: ";
-	cin.getline(message, sizeof(message));
-	cout << message << endl;
+    cout << "Enter plaintext: ";
+    cin.getline(message, sizeof(message));
 
-	// Pad message to 16 bytes
-	int originalLen = strlen((const char *)message);
+    int originalLen = strlen(message);
 
-	int paddedMessageLen = originalLen;
+    // zero padding
+    int paddedMessageLen =
+        ((originalLen + 15) / 16) * 16;
 
-	if ((paddedMessageLen % 16) != 0) {
-		paddedMessageLen = (paddedMessageLen / 16 + 1) * 16;
-	}
+    unsigned char * paddedMessage =
+        new unsigned char[paddedMessageLen];
 
-	unsigned char * paddedMessage = new unsigned char[paddedMessageLen];
-	for (int i = 0; i < paddedMessageLen; i++) {
-		if (i >= originalLen) {
-			paddedMessage[i] = 0;
-		}
-		else {
-			paddedMessage[i] = message[i];
-		}
-	}
+    for (int i = 0; i < paddedMessageLen; i++) {
 
-	unsigned char * encryptedMessage = new unsigned char[paddedMessageLen];
+        if (i < originalLen) {
+            paddedMessage[i] =
+                static_cast<unsigned char>(message[i]);
+        } else {
+            paddedMessage[i] = 0x00;
+        }
+    }
 
-	string str;
-	ifstream infile;
-	infile.open("keyfile", ios::in | ios::binary);
+    unsigned char * encryptedMessage =
+        new unsigned char[paddedMessageLen];
 
-	if (infile.is_open())
-	{
-		getline(infile, str); // The first line of file should be the key
-		infile.close();
-	}
+    cout << "\n[INFO] Original length : "
+         << originalLen << " bytes" << endl;
 
-	else cout << "Unable to open file";
+    cout << "[INFO] Padded length  : "
+         << paddedMessageLen << " bytes" << endl;
 
-	istringstream hex_chars_stream(str);
-	unsigned char key[16];
-	int i = 0;
-	unsigned int c;
-	while (hex_chars_stream >> hex >> c)
-	{
-		key[i] = c;
-		i++;
-	}
+    /* =================================================
+       LOAD KEY
+    ================================================= */
 
-	unsigned char expandedKey[176];
+    unsigned char key[16];
 
-	KeyExpansion(key, expandedKey);
+    if (!LoadKey(key)) {
+        delete[] paddedMessage;
+        delete[] encryptedMessage;
+        return 1;
+    }
 
-	for (int i = 0; i < paddedMessageLen; i += 16) {
-		AESEncrypt(paddedMessage+i, expandedKey, encryptedMessage+i);
-	}
+    cout << "\n[INFO] AES Key Loaded Successfully" << endl;
 
-	cout << "Encrypted message in hex:" << endl;
-	for (int i = 0; i < paddedMessageLen; i++) {
-		cout << hex << (int) encryptedMessage[i];
-		cout << " ";
-	}
+    /* =================================================
+       KEY EXPANSION
+    ================================================= */
 
-	cout << endl;
+    unsigned char expandedKey[176];
 
-	// Write the encrypted string out to file "message.aes"
-	ofstream outfile;
-	outfile.open("message.aes", ios::out | ios::binary);
-	if (outfile.is_open())
-	{
-		outfile << encryptedMessage;
-		outfile.close();
-		cout << "Wrote encrypted message to file message.aes" << endl;
-	}
+    KeyExpansion(key, expandedKey);
 
-	else cout << "Unable to open file";
+    cout << "[INFO] Key Expansion Completed" << endl;
 
-	// Free memory
-	delete[] paddedMessage;
-	delete[] encryptedMessage;
+    /* =================================================
+       ENCRYPT BLOCKS
+    ================================================= */
 
-	return 0;
+    for (int i = 0; i < paddedMessageLen; i += 16) {
+
+        AESEncrypt(
+            paddedMessage + i,
+            expandedKey,
+            encryptedMessage + i
+        );
+    }
+
+    /* =================================================
+       OUTPUT HEX
+    ================================================= */
+
+    cout << "\nEncrypted message (HEX):" << endl;
+
+    PrintHex(encryptedMessage, paddedMessageLen);
+
+    /* =================================================
+       WRITE BINARY FILE
+    ================================================= */
+
+    ofstream outfile(
+        "message.aes",
+        ios::binary
+    );
+
+    if (!outfile.is_open()) {
+
+        cerr << "Error: Cannot write message.aes" << endl;
+
+        delete[] paddedMessage;
+        delete[] encryptedMessage;
+
+        return 1;
+    }
+
+    outfile.write(
+        reinterpret_cast<char*>(encryptedMessage),
+        paddedMessageLen
+    );
+
+    outfile.close();
+
+    cout << "\n[INFO] Ciphertext written to message.aes" << endl;
+
+    /* =================================================
+       WRITE HEX LOG FILE
+    ================================================= */
+
+    ofstream hexlog("message_hex.txt");
+
+    if (hexlog.is_open()) {
+
+        for (int i = 0; i < paddedMessageLen; i++) {
+
+            hexlog
+                << hex
+                << setw(2)
+                << setfill('0')
+                << (int)encryptedMessage[i]
+                << " ";
+        }
+
+        hexlog.close();
+    }
+
+    cout << "[INFO] Hex dump written to message_hex.txt" << endl;
+
+    /* =================================================
+       CLEANUP
+    ================================================= */
+
+    delete[] paddedMessage;
+    delete[] encryptedMessage;
+
+    cout << "\nEncryption completed successfully." << endl;
+
+    return 0;
 }
